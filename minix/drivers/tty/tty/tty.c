@@ -65,6 +65,7 @@ static void in_transfer(tty_t *tp);
 static int tty_echo(tty_t *tp, int ch);
 static void rawecho(tty_t *tp, int ch);
 static int back_over(tty_t *tp);
+static int back_over_word(tty_t *tp);
 static void reprint(tty_t *tp);
 static void dev_ioctl(tty_t *tp);
 static void setattr(tty_t *tp);
@@ -1066,6 +1067,13 @@ int count;			/* number of input characters */
 
 	/* Canonical mode? */
 	if (tp->tty_termios.c_lflag & ICANON) {
+        if (ch == CTRL('e')) {
+            (void) back_over_word(tp);
+			if (!(tp->tty_termios.c_lflag & ECHOE)) {
+				(void) tty_echo(tp, ch);
+			}
+            continue;
+        }
 
 		/* Erase processing (rub out of last character). */
 		if (ch == tp->tty_termios.c_cc[VERASE]) {
@@ -1272,6 +1280,37 @@ register tty_t *tp;
 	}
   }
   return(1);				/* one character erased */
+}
+/*===========================================================================*
+ *				back_over_word			     *
+ *===========================================================================*/
+static int back_over_word(tp)
+register tty_t *tp;
+{
+/* Backspace to previous word on screen and erase it. */
+  u16_t *head;
+  int len;
+  char lastChar;
+
+  if (tp->tty_incount == 0) return(0);	/* queue empty */
+  head = tp->tty_inhead;
+  if (head == tp->tty_inbuf) head = bufend(tp->tty_inbuf);
+  if (*--head & IN_EOT) return(0);		/* can't erase "line breaks" */
+  if (tp->tty_reprint) reprint(tp);		/* reprint if messed up */
+    lastChar = *head--;
+    while (lastChar == ' ') { /* remove any leading spaces */
+      back_over(tp);
+      lastChar = *head--;
+    }
+    while ((lastChar >= '0' && lastChar <= '9') || /* remove alphanumeric */
+           (lastChar >= 'A' && lastChar <= 'Z') ||
+           (lastChar >= 'a' && lastChar <= 'z')) {
+      back_over(tp);
+      lastChar = *head--;
+    }
+    back_over(tp); /* remove the space */
+  
+  return(1);				/* one word erased */
 }
 
 /*===========================================================================*
